@@ -260,10 +260,19 @@ def panel_admin():
                 st.success("No hay tickets pendientes por completar.")
             else:
                 for idx, fila in df_pendientes.iterrows():
-                    col1, col2 = st.columns([3, 1])
-                    with col1:
-                        st.write(f"🆔 **ID:** {fila['ID']} | 👤 {fila['Solicitante']} solicita: **{fila['Articulo']}** (Cant: {fila['Cantidad']})")
-                    with col2:
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        t_id = fila.get('ID', idx)
+        t_solicitante = fila.get('Solicitante', 'N/A')
+        t_articulo = fila.get('Articulo', 'N/A')
+        t_cantidad = fila.get('Cantidad', '1')
+        st.write(f"🆔 **ID:** {t_id} | 👤 {t_solicitante} solicita: **{t_articulo}** (Cant: {t_cantidad})")
+    with col2:
+        if st.button(f"Ticket Completado", key=f"btn_comp_{t_id}"):
+            res_t = request_api({"pestana": "Tickets_Requisiciones", "accion": "actualizar_estatus_ticket", "id_ticket": t_id})
+            if res_t.get("exito"):
+                st.success(f"¡Ticket {t_id} completado!")
+                st.rerun()
                         # Botones dinámicos mapeados por ID único
                         if st.button(f"Ticket Completado", key=f"btn_comp_{fila['ID']}"):
                             res_t = request_api({"pestana": "Tickets_Requisiciones", "accion": "actualizar_estatus_ticket", "id_ticket": fila['ID']})
