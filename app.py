@@ -57,7 +57,7 @@ def verificar_credenciales_local(usuario_ingresado, contrasena_ingresada):
     return None
 
 # =========================================================================
-# 2. SISTEMA VISUAL Y SEMÁFOROS (REQUERIMIENTO 1.3)
+# 2. SISTEMA VISUAL Y SEMÁFOROS 
 # =========================================================================
 def renderizar_tabla_consumibles():
     """Muestra la tabla de consumibles aplicando alertas de color si baja el stock."""
@@ -79,9 +79,16 @@ def renderizar_tabla_consumibles():
         if not alertas.empty:
             st.error(f"🚨 ¡ATENCIÓN! Hay {len(alertas)} insumos con nivel de Stock Mínimo o Crítico.")
             
-        # Resaltado de filas en el visualizador nativo de Streamlit
+        # Resaltado de filas seguro a prueba de errores de lectura
         def destacar_bajo_stock(row):
-            return ['background-color: #ffcccc; color: #cc0000; font-weight: bold' if row.Stock_Actual <= row.Stock_Minimo else '' for _ in row]
+            try:
+                actual = pd.to_numeric(row['Stock_Actual'], errors='coerce')
+                minimo = pd.to_numeric(row['Stock_Minimo'], errors='coerce')
+                if actual <= minimo:
+                    return ['background-color: #ffcccc; color: #cc0000; font-weight: bold'] * len(row)
+            except:
+                pass
+            return [''] * len(row)
         
         st.dataframe(df.style.apply(destacar_bajo_stock, axis=1), use_container_width=True)
     else:
@@ -149,7 +156,7 @@ def form_ticket():
                     "pestana": "Tickets_Requisiciones",
                     "accion": "insertar_fila",
                     "valores": {
-                        "ID_Ticket": id_ticket, # Ajustado para que coincida con tu Sheets
+                        "ID_Ticket": id_ticket, # Ajustado exactamente a tu Google Sheets
                         "Solicitante": st.session_state["usuario"],
                         "Articulo": articulo,
                         "Cantidad": cantidad,
@@ -165,7 +172,7 @@ def form_ticket():
                 else:
                     st.error(f"Error: {res.get('error')}")
             else:
-                st.warning("El ID y el nombre del Artículo son obligatorios.")
+                st.warning("El ID del Ticket y el nombre del Artículo son obligatorios.")
 
 def panel_admin():
     st.subheader("🛠️ Panel de Gestión y Movimientos")
@@ -184,7 +191,7 @@ def panel_admin():
                     else:
                         st.error(f"Error: {res.get('error')}")
 
-    # 2. NUEVO CONSUMIBLE CON MÁS CAMPOS (REQUERIMIENTO 1.1 Y 1.2)
+    # 2. NUEVO CONSUMIBLE CON MÁS CAMPOS
     with st.expander("📦 Insertar Nuevo Consumible", expanded=False):
         with st.form("form_nuevo_consumible"):
             id_c = st.text_input("ID del Consumible (Manual)")
@@ -220,7 +227,7 @@ def panel_admin():
                     if request_api(payload).get("exito"): st.success("Herramienta guardada.")
                 else: st.warning("ID y Nombre son obligatorios.")
 
-    # 4. NUEVA SECCIÓN: GESTIÓN DE NAVAJAS CIRCULARES EN MM (REQUERIMIENTO 5.1)
+    # 4. GESTIÓN DE NAVAJAS CIRCULARES EN MM 
     with st.expander("⚙️ Gestión de Navajas Circulares (Servicio de Rectificado)", expanded=False):
         st.info("Registre las medidas correspondientes a los servicios de rectificado realizados en milímetros (mm).")
         with st.form("form_navajas_circulares"):
@@ -250,7 +257,7 @@ def panel_admin():
                 else:
                     st.warning("El ID y el nombre del Juego de Navajas son campos obligatorios.")
 
-    # 5. NUEVA SECCIÓN: GESTIÓN DE TICKETS INTERACTIVA (REQUERIMIENTO 5.2)
+    # 5. GESTIÓN DE TICKETS INTERACTIVA (SANGRIAS E ID_TICKET CORREGIDOS)
     with st.expander("📋 Cambiar Estatus de Tickets (Gestión)", expanded=True):
         st.markdown("Presione el botón para marcar una requisición como **Completada** en la nube.")
         df_tickets = fetch_sheet("Tickets_Requisiciones")
@@ -260,46 +267,39 @@ def panel_admin():
                 st.success("No hay tickets pendientes por completar.")
             else:
                 for idx, fila in df_pendientes.iterrows():
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        # Aquí cambiamos 'ID' por 'ID_Ticket' para que coincida al 100% con tu Google Sheets
-        t_id = fila.get('ID_Ticket', idx)
-        t_solicitante = fila.get('Solicitante', 'N/A')
-        t_articulo = fila.get('Articulo', 'N/A')
-        t_cantidad = fila.get('Cantidad', '1')
-        st.write(f"🆔 **ID:** {t_id} | 👤 {t_solicitante} solicita: **{t_articulo}** (Cant: {t_cantidad})")
-    with col2:
-        if st.button(f"Ticket Completado", key=f"btn_comp_{t_id}"):
-            res_t = request_api({"pestana": "Tickets_Requisiciones", "accion": "actualizar_estatus_ticket", "id_ticket": t_id})
-            if res_t.get("exito"):
-                st.success(f"¡Ticket {t_id} completado!")
-                st.rerun()
-                        # Botones dinámicos mapeados por ID único
-                        if st.button(f"Ticket Completado", key=f"btn_comp_{fila['ID']}"):
-                            res_t = request_api({"pestana": "Tickets_Requisiciones", "accion": "actualizar_estatus_ticket", "id_ticket": fila['ID']})
+                    col1, col2 = st.columns([3, 1])
+                    with col1:
+                        # Mapeado exacto a 'ID_Ticket' como se encuentra en tu Sheets
+                        t_id = fila.get('ID_Ticket', idx)
+                        t_solicitante = fila.get('Solicitante', 'N/A')
+                        t_articulo = fila.get('Articulo', 'N/A')
+                        t_cantidad = fila.get('Cantidad', '1')
+                        st.write(f"🆔 **ID:** {t_id} | 👤 {t_solicitante} solicita: **{t_articulo}** (Cant: {t_cantidad})")
+                    with col2:
+                        if st.button(f"Ticket Completado", key=f"btn_comp_{t_id}"):
+                            res_t = request_api({"pestana": "Tickets_Requisiciones", "accion": "actualizar_estatus_ticket", "id_ticket": t_id})
                             if res_t.get("exito"):
-                                st.success(f"¡Ticket {fila['ID']} completado!")
+                                st.success(f"¡Ticket {t_id} completado!")
                                 st.rerun()
         else:
             st.info("No hay registros en la pestaña de Tickets.")
 
 # =========================================================================
-# 4. CONTROL DE POP-UPS PARA ROL SUPERIOR (REQUERIMIENTO 5.3)
+# 4. CONTROL DE POP-UPS PARA ROL SUPERIOR
 # =========================================================================
 def revisar_notificaciones_superior():
     """Lanza notificaciones emergentes si hay requisiciones completadas."""
     if st.session_state.get("rol") == "Superior":
         df_t = fetch_sheet("Tickets_Requisiciones")
         if not df_t.empty and "Solicitante" in df_t.columns and "Estatus" in df_t.columns:
-            # Filtrar tickets del usuario logeado que ya estén completados
             mis_completados = df_t[
                 (df_t["Solicitante"].astype(str).str.strip().str.lower() == str(st.session_state["usuario"]).strip().str.lower()) & 
                 (df_t["Estatus"].astype(str).str.strip().str.lower() == "completado")
             ]
             if not mis_completados.empty:
                 for _, ticket in mis_completados.iterrows():
-                    # Usamos un toast pop-up dinámico de Streamlit para no bloquear permanentemente la pantalla
-                    st.toast(f"🎉 ¡Tu Requisición ID: {ticket['ID']} de {ticket['Articulo']} ha sido COMPLETADA!", icon="🎫")
+                    t_id_notif = ticket.get('ID_Ticket', 'Ticket')
+                    st.toast(f"🎉 ¡Tu Requisición ID: {t_id_notif} de {ticket['Articulo']} ha sido COMPLETADA!", icon="🎫")
 
 # =========================================================================
 # 5. NÚCLEO PRINCIPAL (TABS POR ROL)
