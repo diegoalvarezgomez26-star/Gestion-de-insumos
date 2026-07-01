@@ -14,7 +14,7 @@ else:
     ssl._create_default_https_context = _create_unverified_https_context
 
 # =========================================================================
-# 1. CONEXIÓN A LA API (Coloca aquí tu NUEVA URL de Apps Script)
+# 1. CONEXIÓN A LA API (https://script.google.com/macros/s/AKfycbxHDNm8c3ybd0q83vLvxnJliCOQTrPGhOGnIfXSAGwafZ2AlARG9mWUZ1l_-UE-aFjvZQ/exec)
 # =========================================================================
 URL_API = "https://script.google.com/macros/s/AKfycbxHDNm8c3ybd0q83vLvxnJliCOQTrPGhOGnIfXSAGwafZ2AlARG9mWUZ1l_-UE-aFjvZQ/exec"
 
