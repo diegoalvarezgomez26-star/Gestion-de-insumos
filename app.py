@@ -276,7 +276,7 @@ def panel_admin():
                         t_cantidad = fila.get('Cantidad', '1')
                         st.write(f"🆔 **ID:** {t_id} | 👤 {t_solicitante} solicita: **{t_articulo}** (Cant: {t_cantidad})")
                     with col2:
-                        if st.button(f"Ticket Completado", key=f"btn_comp_{t_id}"):
+                        if st.button(f"Ticket Completado", key=f"btn_comp_{t_id}_{idx}"):
                             res_t = request_api({"pestana": "Tickets_Requisiciones", "accion": "actualizar_estatus_ticket", "id_ticket": t_id})
                             if res_t.get("exito"):
                                 st.success(f"¡Ticket {t_id} completado!")
