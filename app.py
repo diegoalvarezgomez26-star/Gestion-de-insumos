@@ -149,7 +149,7 @@ def form_ticket():
                     "pestana": "Tickets_Requisiciones",
                     "accion": "insertar_fila",
                     "valores": {
-                        "ID": id_ticket,
+                        "ID_Ticket": id_ticket, # Ajustado para que coincida con tu Sheets
                         "Solicitante": st.session_state["usuario"],
                         "Articulo": articulo,
                         "Cantidad": cantidad,
@@ -262,7 +262,8 @@ def panel_admin():
                 for idx, fila in df_pendientes.iterrows():
     col1, col2 = st.columns([3, 1])
     with col1:
-        t_id = fila.get('ID', idx)
+        # Aquí cambiamos 'ID' por 'ID_Ticket' para que coincida al 100% con tu Google Sheets
+        t_id = fila.get('ID_Ticket', idx)
         t_solicitante = fila.get('Solicitante', 'N/A')
         t_articulo = fila.get('Articulo', 'N/A')
         t_cantidad = fila.get('Cantidad', '1')
