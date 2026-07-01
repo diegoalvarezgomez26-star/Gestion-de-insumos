@@ -291,15 +291,19 @@ def revisar_notificaciones_superior():
     """Lanza notificaciones emergentes si hay requisiciones completadas."""
     if st.session_state.get("rol") == "Superior":
         df_t = fetch_sheet("Tickets_Requisiciones")
-        if not df_t.empty and "Solicitante" in df_t.columns and "Estatus" in df_t.columns:
-            mis_completados = df_t[
-                (df_t["Solicitante"].astype(str).str.strip().str.lower() == str(st.session_state["usuario"]).strip().str.lower()) & 
-                (df_t["Estatus"].astype(str).str.strip().str.lower() == "completado")
-            ]
-            if not mis_completados.empty:
-                for _, ticket in mis_completados.iterrows():
-                    t_id_notif = ticket.get('ID_Ticket', 'Ticket')
-                    st.toast(f"🎉 ¡Tu Requisición ID: {t_id_notif} de {ticket['Articulo']} ha sido COMPLETADA!", icon="🎫")
+        if not df_t.empty:
+            usuario_actual = str(st.session_state.get("usuario", "")).strip().lower()
+            
+            # Recorremos cada fila de forma segura usando .get() para evitar caídas por columnas vacías
+            for idx, ticket in df_t.iterrows():
+                solicitante = str(ticket.get("Solicitante", "")).strip().lower()
+                estatus = str(ticket.get("Estatus", "")).strip().lower()
+                
+                # Si el ticket es del usuario actual y ya está completado, lanza el pop-up
+                if solicitante == usuario_actual and estatus == "completado":
+                    t_id_notif = ticket.get('ID_Ticket', idx)
+                    t_articulo = ticket.get('Articulo', 'Insumo')
+                    st.toast(f"🎉 ¡Tu Requisición ID: {t_id_notif} de {t_articulo} ha sido COMPLETADA!", icon="🎫")
 
 # =========================================================================
 # 5. NÚCLEO PRINCIPAL (TABS POR ROL)
