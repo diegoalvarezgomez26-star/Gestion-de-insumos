@@ -3,7 +3,7 @@ import requests
 import pandas as pd
 import plotly.express as px
 import ssl
-import os
+from datetime import datetime
 
 # Desactivar la verificación estricta de certificados SSL (Para redes corporativas)
 try:
@@ -13,17 +13,18 @@ except AttributeError:
 else:
     ssl._create_default_https_context = _create_unverified_https_context
 
-# 1. Conexión a la API (URL de la implementación de Apps Script)
-URL_API = "https://script.google.com/macros/s/AKfycbz3YZStuc9vFCBm2JuAm38a5gsxNi7qv7d9xoOUJvw83CTLAxcyFk6afm4mWRBzx9T6bQ/exec"
+# =========================================================================
+# 1. CONEXIÓN A LA API (Coloca aquí tu NUEVA URL de Apps Script)
+# =========================================================================
+URL_API = "https://script.google.com/macros/s/AKfycbxHDNm8c3ybd0q83vLvxnJliCOQTrPGhOGnIfXSAGwafZ2AlARG9mWUZ1l_-UE-aFjvZQ/exec"
 
 def request_api(payload):
     """Envía peticiones POST al backend (Apps Script)."""
     try:
-        # allow_redirects=True es vital para Apps Script ya que Google redirecciona las peticiones POST
         respuesta = requests.post(URL_API, json=payload, allow_redirects=True)
         return respuesta.json()
     except requests.exceptions.JSONDecodeError:
-        return {"exito": False, "error": "JSONDecodeError: El servidor no devolvió JSON."}
+        return {"exito": False, "error": "JSONDecodeError: El servidor no devolvió JSON válido."}
     except Exception as e:
         return {"exito": False, "error": str(e)}
 
@@ -45,24 +46,52 @@ def verificar_credenciales_local(usuario_ingresado, contrasena_ingresada):
     """Descarga la pestaña Usuarios y valida las credenciales directamente en Python."""
     df_usuarios = fetch_sheet("Usuarios")
     if not df_usuarios.empty:
-        # Forzar que los nombres de columnas no tengan espacios raros
         df_usuarios.columns = df_usuarios.columns.str.strip()
-        
-        # Validar si existen las columnas necesarias
         if "Usuario" in df_usuarios.columns and "Contraseña" in df_usuarios.columns:
-            # Buscamos la fila que coincida de forma exacta
             coincidencia = df_usuarios[
                 (df_usuarios["Usuario"].astype(str).str.strip() == str(usuario_ingresado).strip()) & 
                 (df_usuarios["Contraseña"].astype(str).str.strip() == str(contrasena_ingresada).strip())
             ]
             if not coincidencia.empty:
-                # Retornamos el Rol asignado (si no existe la columna Rol, por defecto es Invitado)
                 return coincidencia.iloc[0].get("Rol", "Invitado")
     return None
 
-# 2. Login por Roles
+# =========================================================================
+# 2. SISTEMA VISUAL Y SEMÁFOROS (REQUERIMIENTO 1.3)
+# =========================================================================
+def renderizar_tabla_consumibles():
+    """Muestra la tabla de consumibles aplicando alertas de color si baja el stock."""
+    st.subheader("📦 Inventario de Consumibles")
+    df = fetch_sheet("Consumibles")
+    if df.empty:
+        st.info("No hay consumibles registrados.")
+        return
+
+    # Verificar existencias de columnas críticas para evitar caídas
+    columnas_necesarias = ["Stock_Actual", "Stock_Minimo"]
+    for col in columnas_necesarias:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+
+    # Lógica de Alertas Visuales
+    if "Stock_Actual" in df.columns and "Stock_Minimo" in df.columns:
+        alertas = df[df["Stock_Actual"] <= df["Stock_Minimo"]]
+        if not alertas.empty:
+            st.error(f"🚨 ¡ATENCIÓN! Hay {len(alertas)} insumos con nivel de Stock Mínimo o Crítico.")
+            
+        # Resaltado de filas en el visualizador nativo de Streamlit
+        def destacar_bajo_stock(row):
+            return ['background-color: #ffcccc; color: #cc0000; font-weight: bold' if row.Stock_Actual <= row.Stock_Minimo else '' for _ in row]
+        
+        st.dataframe(df.style.apply(destacar_bajo_stock, axis=1), use_container_width=True)
+    else:
+        st.dataframe(df, use_container_width=True)
+
+# =========================================================================
+# 3. COMPONENTES VISUALES Y FORMULARIOS (FASE 2)
+# =========================================================================
 def sidebar_login():
-    """Maneja el inicio de sesión utilizando el validador local de Sheets."""
+    """Maneja el inicio de sesión y persistencia del rol en la barra lateral."""
     if "rol" not in st.session_state:
         st.session_state["rol"] = None
         st.session_state["usuario"] = None
@@ -75,7 +104,6 @@ def sidebar_login():
             submit = st.form_submit_button("Ingresar")
             
             if submit:
-                # Llamamos a nuestra validación directa contra el Google Sheets
                 rol_detectado = verificar_credenciales_local(usuario, contrasena)
                 if rol_detectado:
                     st.session_state["rol"] = rol_detectado
@@ -83,7 +111,7 @@ def sidebar_login():
                     st.sidebar.success("¡Acceso concedido!")
                     st.rerun()
                 else:
-                    st.sidebar.error("Credenciales incorrectas o columnas desalineadas en Sheets")
+                    st.sidebar.error("Credenciales incorrectas")
         return False
     else:
         st.sidebar.success(f"Usuario: {st.session_state['usuario']} \n\nRol: {st.session_state['rol']}")
@@ -93,44 +121,35 @@ def sidebar_login():
             st.rerun()
         return True
 
-# 4. Gráficos de Consumo
 def mostrar_graficos():
     st.subheader("📊 Top 5 Insumos Más Utilizados")
     df_consumos = fetch_sheet("Historial_Consumos")
-    
     if not df_consumos.empty and "Articulo" in df_consumos.columns and "Cantidad_Retirada" in df_consumos.columns:
         df_consumos["Cantidad_Retirada"] = pd.to_numeric(df_consumos["Cantidad_Retirada"], errors="coerce")
         df_top = df_consumos.groupby("Articulo")["Cantidad_Retirada"].sum().nlargest(5).reset_index()
-        
-        fig = px.bar(
-            df_top, 
-            x="Articulo", 
-            y="Cantidad_Retirada", 
-            color="Cantidad_Retirada",
-            title="Histórico de Salidas por Artículo",
-            labels={"Cantidad_Retirada": "Cantidad Total", "Articulo": "Insumo"},
-            color_continuous_scale="Blues"
-        )
+        fig = px.bar(df_top, x="Articulo", y="Cantidad_Retirada", color="Cantidad_Retirada", color_continuous_scale="Blues")
         st.plotly_chart(fig, use_container_width=True)
     else:
-        st.info("No hay suficientes datos en el Historial de Consumos para graficar.")
+        st.info("No hay suficientes datos en el Historial para graficar.")
 
 def form_ticket():
     st.subheader("🎫 Crear Ticket de Requisición")
     with st.form("form_nuevo_ticket"):
-        articulo = st.text_input("Artículo")
+        id_ticket = st.text_input("ID del Ticket / Requisición (Manual)")
+        articulo = st.text_input("Artículo Solicitado")
         cantidad = st.number_input("Cantidad", min_value=1)
         urgencia = st.selectbox("Urgencia", ["Normal", "Alta"])
         especificacion = st.text_area("Especificación")
         link = st.text_input("Link Cotización")
-        
         submit = st.form_submit_button("Enviar Requisición")
+        
         if submit:
-            if articulo:
+            if articulo and id_ticket:
                 payload = {
                     "pestana": "Tickets_Requisiciones",
                     "accion": "insertar_fila",
                     "valores": {
+                        "ID": id_ticket,
                         "Solicitante": st.session_state["usuario"],
                         "Articulo": articulo,
                         "Cantidad": cantidad,
@@ -142,104 +161,141 @@ def form_ticket():
                 }
                 res = request_api(payload)
                 if res.get("exito"):
-                    st.success("¡Ticket de requisición registrado correctamente en Google Sheets!")
+                    st.success(f"¡Ticket {id_ticket} registrado con éxito!")
                 else:
-                    st.error(f"Error al registrar: {res.get('error', 'Error desconocido')}")
+                    st.error(f"Error: {res.get('error')}")
             else:
-                st.warning("Por favor, introduce el nombre del artículo.")
+                st.warning("El ID y el nombre del Artículo son obligatorios.")
 
 def panel_admin():
     st.subheader("🛠️ Panel de Gestión y Movimientos")
     
+    # 1. MODIFICAR STOCK MANUAL
     with st.expander("🔻 Modificar Stock (Consumo Manual)", expanded=False):
-        st.markdown("Descuenta existencias del inventario actual y registra la salida en el Historial.")
         with st.form("form_consumo"):
             articulo = st.text_input("Artículo a consumir (Exactamente como está en la base)")
             cantidad = st.number_input("Cantidad a retirar", min_value=1.0, step=1.0)
-            
             submit = st.form_submit_button("Aplicar Consumo")
             if submit:
                 if articulo:
-                    payload = {
-                        "pestana": "Consumibles",
-                        "accion": "actualizar_stock",
-                        "nombre": articulo,
-                        "nuevo_stock": cantidad
-                    }
-                    res = request_api(payload)
+                    res = request_api({"pestana": "Consumibles", "accion": "actualizar_stock", "nombre": articulo, "nuevo_stock": cantidad, "usuario": st.session_state["usuario"]})
                     if res.get("exito"):
-                        st.success("¡Stock modificado con éxito en el sistema!")
+                        st.success("¡Stock descontado y registrado en el historial!")
                     else:
-                        st.error(f"Fallo al procesar: {res.get('error', 'No se encontró el artículo')}")
-                else:
-                    st.warning("Por favor, introduce el nombre del artículo.")
+                        st.error(f"Error: {res.get('error')}")
 
+    # 2. NUEVO CONSUMIBLE CON MÁS CAMPOS (REQUERIMIENTO 1.1 Y 1.2)
     with st.expander("📦 Insertar Nuevo Consumible", expanded=False):
         with st.form("form_nuevo_consumible"):
-            nombre = st.text_input("Nombre del Consumible")
-            unidad = st.text_input("Unidad (ej. Piezas, Cajas, Litros)")
-            stock_actual = st.number_input("Stock Actual", min_value=0.0, step=1.0)
-            stock_minimo = st.number_input("Stock Mínimo", min_value=0.0, step=1.0)
+            id_c = st.text_input("ID del Consumible (Manual)")
+            nombre = st.text_input("Nombre")
+            marca = st.text_input("Marca")
+            modelo = st.text_input("Modelo")
+            unidad = st.text_input("Unidad (ej. Piezas)")
+            stock_actual = st.number_input("Stock Actual", min_value=0.0)
+            stock_minimo = st.number_input("Stock Mínimo", min_value=0.0)
             categoria = st.text_input("Categoría")
-
             submit_cons = st.form_submit_button("Guardar Consumible")
             if submit_cons:
-                if nombre:
-                    payload = {
-                        "pestana": "Consumibles",
-                        "accion": "insertar_fila",
-                        "valores": {
-                            "Nombre": nombre,
-                            "Unidad": unidad,
-                            "Stock_Actual": stock_actual,
-                            "Stock_Minimo": stock_minimo,
-                            "Categoria": categoria
-                        }
-                    }
-                    res = request_api(payload)
-                    if res.get("exito"):
-                        st.success("¡Consumible registrado con éxito!")
-                    else:
-                        st.error(f"Error al registrar: {res.get('error', 'Error desconocido')}")
-                else:
-                    st.warning("El nombre del consumible es obligatorio.")
+                if id_c and nombre:
+                    payload = {"pestana": "Consumibles", "accion": "insertar_fila", "valores": {"ID": id_c, "Nombre": nombre, "Marca": marca, "Modelo": modelo, "Unidad": unidad, "Stock_Actual": stock_actual, "Stock_Minimo": stock_minimo, "Categoria": categoria}}
+                    if request_api(payload).get("exito"): st.success("Consumible guardado con éxito.")
+                else: st.warning("ID y Nombre son obligatorios.")
 
+    # 3. NUEVO HERRAMENTAL CON MÁS CAMPOS
     with st.expander("🔧 Insertar Nuevo Herramental", expanded=False):
         with st.form("form_nuevo_herramental"):
+            id_h = st.text_input("ID del Herramental (Manual)")
             nombre_herr = st.text_input("Nombre de la Herramienta")
-            unidad_herr = st.text_input("Unidad (ej. Pieza, Equipo)")
+            marca_herr = st.text_input("Marca")
+            modelo_herr = st.text_input("Modelo")
+            unidad_herr = st.text_input("Unidad")
             estado = st.selectbox("Estado", ["Disponible", "En Uso", "En Mantenimiento", "Baja"])
-            ultimo_mantenimiento = st.date_input("Último Mantenimiento")
-            proximo_mantenimiento = st.date_input("Próximo Mantenimiento")
-
+            ultimo_m = st.date_input("Último Mantenimiento")
+            proximo_m = st.date_input("Próximo Mantenimiento")
             submit_herr = st.form_submit_button("Guardar Herramienta")
             if submit_herr:
-                if nombre_herr:
+                if id_h and nombre_herr:
+                    payload = {"pestana": "Herramental", "accion": "insertar_fila", "valores": {"ID": id_h, "Nombre": nombre_herr, "Marca": marca_herr, "Modelo": modelo_herr, "Unidad": unidad_herr, "Estado": estado, "Ultimo_Mantenimiento": ultimo_m.strftime("%Y-%m-%d"), "Proximo_Mantenimiento": proximo_m.strftime("%Y-%m-%d")}}
+                    if request_api(payload).get("exito"): st.success("Herramienta guardada.")
+                else: st.warning("ID y Nombre son obligatorios.")
+
+    # 4. NUEVA SECCIÓN: GESTIÓN DE NAVAJAS CIRCULARES EN MM (REQUERIMIENTO 5.1)
+    with st.expander("⚙️ Gestión de Navajas Circulares (Servicio de Rectificado)", expanded=False):
+        st.info("Registre las medidas correspondientes a los servicios de rectificado realizados en milímetros (mm).")
+        with st.form("form_navajas_circulares"):
+            id_navaja = st.text_input("ID de Operación / Registro")
+            juego_navajas = st.text_input("Juego de Navajas Circulares (Nombre/Modelo)")
+            medida_actual = st.number_input("Medida Actual (mm)", min_value=0.00, step=0.01, format="%.2f")
+            cantidad_removida = st.number_input("Cantidad Removida (mm)", min_value=0.00, step=0.01, format="%.2f")
+            filos_malos = st.number_input("Filos Malos (Cantidad)", min_value=0, step=1)
+            submit_navajas = st.form_submit_button("Registrar Servicio de Rectificado")
+            
+            if submit_navajas:
+                if id_navaja and juego_navajas:
                     payload = {
-                        "pestana": "Herramental",
+                        "pestana": "Gestion_Navajas_Circulares",
                         "accion": "insertar_fila",
                         "valores": {
-                            "Nombre": nombre_herr,
-                            "Unidad": unidad_herr,
-                            "Estado": estado,
-                            "Ultimo_Mantenimiento": ultimo_mantenimiento.strftime("%Y-%m-%d"),
-                            "Proximo_Mantenimiento": proximo_mantenimiento.strftime("%Y-%m-%d")
+                            "ID": id_navaja,
+                            "Juego_Navajas_Circulares": juego_navajas,
+                            "Medida_Actual": medida_actual,
+                            "Cantidad_Removida": cantidad_removida,
+                            "Filos_Malos": filos_malos,
+                            "Fecha_Registro": datetime.now().strftime("%Y-%m-%d")
                         }
                     }
-                    res = request_api(payload)
-                    if res.get("exito"):
-                        st.success("¡Herramienta registrada con éxito!")
-                    else:
-                        st.error(f"Error al registrar: {res.get('error', 'Error desconocido')}")
+                    if request_api(payload).get("exito"):
+                        st.success("¡Servicio de rectificado de navajas circulares registrado en la base de datos!")
                 else:
-                    st.warning("El nombre de la herramienta es obligatorio.")
-                
-    st.divider()
-    st.caption("Nota: El sistema ahora permite insertar datos dinámicos en todas las pestañas desde los formularios superiores de manera segura.")
+                    st.warning("El ID y el nombre del Juego de Navajas son campos obligatorios.")
 
-# 3. Sistema de Pestañas (Tabs) según el Rol
+    # 5. NUEVA SECCIÓN: GESTIÓN DE TICKETS INTERACTIVA (REQUERIMIENTO 5.2)
+    with st.expander("📋 Cambiar Estatus de Tickets (Gestión)", expanded=True):
+        st.markdown("Presione el botón para marcar una requisición como **Completada** en la nube.")
+        df_tickets = fetch_sheet("Tickets_Requisiciones")
+        if not df_tickets.empty:
+            df_pendientes = df_tickets[df_tickets["Estatus"].astype(str).str.lower() == "pendiente"]
+            if df_pendientes.empty:
+                st.success("No hay tickets pendientes por completar.")
+            else:
+                for idx, fila in df_pendientes.iterrows():
+                    col1, col2 = st.columns([3, 1])
+                    with col1:
+                        st.write(f"🆔 **ID:** {fila['ID']} | 👤 {fila['Solicitante']} solicita: **{fila['Articulo']}** (Cant: {fila['Cantidad']})")
+                    with col2:
+                        # Botones dinámicos mapeados por ID único
+                        if st.button(f"Ticket Completado", key=f"btn_comp_{fila['ID']}"):
+                            res_t = request_api({"pestana": "Tickets_Requisiciones", "accion": "actualizar_estatus_ticket", "id_ticket": fila['ID']})
+                            if res_t.get("exito"):
+                                st.success(f"¡Ticket {fila['ID']} completado!")
+                                st.rerun()
+        else:
+            st.info("No hay registros en la pestaña de Tickets.")
+
+# =========================================================================
+# 4. CONTROL DE POP-UPS PARA ROL SUPERIOR (REQUERIMIENTO 5.3)
+# =========================================================================
+def revisar_notificaciones_superior():
+    """Lanza notificaciones emergentes si hay requisiciones completadas."""
+    if st.session_state.get("rol") == "Superior":
+        df_t = fetch_sheet("Tickets_Requisiciones")
+        if not df_t.empty and "Solicitante" in df_t.columns and "Estatus" in df_t.columns:
+            # Filtrar tickets del usuario logeado que ya estén completados
+            mis_completados = df_t[
+                (df_t["Solicitante"].astype(str).str.strip().str.lower() == str(st.session_state["usuario"]).strip().str.lower()) & 
+                (df_t["Estatus"].astype(str).str.strip().str.lower() == "completado")
+            ]
+            if not mis_completados.empty:
+                for _, ticket in mis_completados.iterrows():
+                    # Usamos un toast pop-up dinámico de Streamlit para no bloquear permanentemente la pantalla
+                    st.toast(f"🎉 ¡Tu Requisición ID: {ticket['ID']} de {ticket['Articulo']} ha sido COMPLETADA!", icon="🎫")
+
+# =========================================================================
+# 5. NÚCLEO PRINCIPAL (TABS POR ROL)
+# =========================================================================
 def main():
-    st.set_page_config(page_title="Gestión Web de Insumos", layout="wide")
+    st.set_page_config(page_title="Gestión Web de Insumos V2", layout="wide")
     
     if not sidebar_login():
         st.title("Gestión Central de Insumos")
@@ -248,28 +304,35 @@ def main():
 
     rol = st.session_state["rol"]
     st.title(f"Panel Principal - Rol: {rol}")
+    
+    # Ejecutar escáner de pop-ups para el rol Superior
+    revisar_notificaciones_superior()
 
     if rol == "Invitado":
         t1, t2 = st.tabs(["📦 Consumibles", "🔧 Herramental"])
-        with t1: st.dataframe(fetch_sheet("Consumibles"), use_container_width=True)
+        with t1: renderizar_tabla_consumibles()
         with t2: st.dataframe(fetch_sheet("Herramental"), use_container_width=True)
 
     elif rol == "Superior":
-        t1, t2, t3, t4 = st.tabs(["📦 Consumibles", "🔧 Herramental", "📈 Gráficos de Consumo", "📝 Nuevo Ticket"])
-        with t1: st.dataframe(fetch_sheet("Consumibles"), use_container_width=True)
+        t1, t2, t3, t4, t5 = st.tabs(["📦 Consumibles", "🔧 Herramental", "📈 Gráficos de Consumo", "📝 Nuevo Ticket", "⚙️ Navajas Circulares"])
+        with t1: renderizar_tabla_consumibles()
         with t2: st.dataframe(fetch_sheet("Herramental"), use_container_width=True)
         with t3: mostrar_graficos()
         with t4: form_ticket()
+        with t5: 
+            st.subheader("📋 Historial de Rectificados - Navajas Circulares")
+            st.dataframe(fetch_sheet("Gestion_Navajas_Circulares"), use_container_width=True)
 
     elif rol == "Admin":
-        t1, t2, t3, t4, t5 = st.tabs([
-            "📦 Consumibles", "🔧 Herramental", "📈 Gráficos", "📋 Tickets", "⚙️ Gestión / Stock"
+        t1, t2, t3, t4, t5, t6 = st.tabs([
+            "📦 Consumibles", "🔧 Herramental", "📈 Gráficos", "📋 Tickets", "⚙️ Navajas Circulares", "🛠️ Gestión / Stock"
         ])
-        with t1: st.dataframe(fetch_sheet("Consumibles"), use_container_width=True)
+        with t1: renderizar_tabla_consumibles()
         with t2: st.dataframe(fetch_sheet("Herramental"), use_container_width=True)
         with t3: mostrar_graficos()
         with t4: st.dataframe(fetch_sheet("Tickets_Requisiciones"), use_container_width=True)
-        with t5: panel_admin()
+        with t5: st.dataframe(fetch_sheet("Gestion_Navajas_Circulares"), use_container_width=True)
+        with t6: panel_admin()
 
 if __name__ == "__main__":
     main()
